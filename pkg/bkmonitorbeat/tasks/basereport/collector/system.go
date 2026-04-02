@@ -10,11 +10,30 @@
 package collector
 
 import (
+	"runtime"
+	"time"
+
 	"github.com/shirou/gopsutil/v3/host"
-	"github.com/shirou/gopsutil/v3/process"
+	gopsutilprocess "github.com/shirou/gopsutil/v3/process"
 
 	"github.com/TencentBlueKing/bkmonitor-datalink/pkg/bkmonitorbeat/tasks"
+	"github.com/TencentBlueKing/bkmonitor-datalink/pkg/bkmonitorbeat/tasks/processsnapshot"
 	"github.com/TencentBlueKing/bkmonitor-datalink/pkg/utils/logger"
+)
+
+const (
+	sharedProcSnapshotMaxAge = 1 * time.Minute
+)
+
+var (
+	getSharedProcStates = func() (map[int32]string, bool) {
+		snapshot, ok := processsnapshot.SharedProcStates(sharedProcSnapshotMaxAge)
+		if !ok {
+			return nil, false
+		}
+		return snapshot.States, true
+	}
+	countZombieProcs = numZombieProcsByGopsutil
 )
 
 // add systemtype info
@@ -54,7 +73,22 @@ func GetSystemInfo() (*SystemReport, error) {
 }
 
 func numZombieProcs() (int, error) {
-	procs, err := process.Processes()
+	if states, ok := getSharedProcStates(); ok {
+		var total int
+		for _, state := range states {
+			if state == "zombie" {
+				total++
+			}
+		}
+		return total, nil
+	}
+
+	return countZombieProcs(runtime.GOOS)
+}
+
+func numZombieProcsByGopsutil(goos string) (int, error) {
+	_ = goos
+	procs, err := gopsutilprocess.Processes()
 	if err != nil {
 		return 0, err
 	}
@@ -65,7 +99,7 @@ func numZombieProcs() (int, error) {
 		if err != nil {
 			continue
 		}
-		if len(status) > 0 && status[0] == process.Zombie {
+		if len(status) > 0 && status[0] == gopsutilprocess.Zombie {
 			total++
 		}
 	}
