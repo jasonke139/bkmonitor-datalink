@@ -82,15 +82,15 @@ func (p *procPerfMgr) MergeMetaDataPerfStat(meta, perf define.ProcStat) define.P
 
 func (p *procPerfMgr) getProcState(s string) string {
 	switch s {
-	case "S":
+	case "S", "sleeping":
 		return "sleeping"
-	case "R":
+	case "R", "running":
 		return "running"
-	case "D", "I":
+	case "D", "I", "idle":
 		return "idle"
-	case "T":
+	case "T", "stopped":
 		return "stopped"
-	case "Z":
+	case "Z", "zombie":
 		return "zombie"
 	}
 	return "unknown"
