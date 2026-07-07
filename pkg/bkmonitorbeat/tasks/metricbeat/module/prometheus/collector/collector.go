@@ -314,10 +314,10 @@ func (m *MetricSet) getEventsFromReader(metricsReader io.ReadCloser, cleanup fun
 	eventChan := make(chan []common.MapStr)
 
 	// 补充 up 指标文本
-	var total atomic.Int64
+	var total int64
 	markUp := func(failed bool, t0 time.Time) {
 		// 需要减去自监控指标
-		events := m.asEvents(CodeScrapeLine(int(total.Load()-2), m.logkvs()), milliTs)
+		events := m.asEvents(CodeScrapeLine(int(atomic.LoadInt64(&total)-2), m.logkvs()), milliTs)
 		if failed {
 			events = append(events, m.asEvents(CodeUp(define.CodeInvalidPromFormat, m.logkvs()), milliTs)...)
 		} else {
@@ -328,7 +328,7 @@ func (m *MetricSet) getEventsFromReader(metricsReader io.ReadCloser, cleanup fun
 	}
 
 	// 消费指标文本并生成事件
-	var produceErr atomic.Bool
+	var produceErr int32
 	consume := func() {
 		batch := make([]common.MapStr, 0, maxBatchSize)
 		for lines := range linesCh {
@@ -337,14 +337,14 @@ func (m *MetricSet) getEventsFromReader(metricsReader io.ReadCloser, cleanup fun
 				events, err := m.produceEvents(line, milliTs)
 				if err != nil {
 					logger.Warnf("failed to produce events: %v", err)
-					produceErr.Store(true)
+					atomic.StoreInt32(&produceErr, 1)
 					continue
 				}
 
 				for j := 0; j < len(events); j++ {
 					batch = append(batch, events[j])
 					if len(batch) >= maxBatchSize {
-						total.Add(int64(len(batch)))
+						atomic.AddInt64(&total, int64(len(batch)))
 						eventChan <- batch
 						batch = make([]common.MapStr, 0, maxBatchSize)
 					}
@@ -353,7 +353,7 @@ func (m *MetricSet) getEventsFromReader(metricsReader io.ReadCloser, cleanup fun
 		}
 
 		if len(batch) > 0 {
-			total.Add(int64(len(batch)))
+			atomic.AddInt64(&total, int64(len(batch)))
 			eventChan <- batch
 		}
 	}
@@ -374,7 +374,7 @@ func (m *MetricSet) getEventsFromReader(metricsReader io.ReadCloser, cleanup fun
 		wg.Wait()
 
 		if up {
-			markUp(produceErr.Load(), start) // 一次采集只上报一次状态
+			markUp(atomic.LoadInt32(&produceErr) != 0, start) // 一次采集只上报一次状态
 		}
 	}()
 	return eventChan

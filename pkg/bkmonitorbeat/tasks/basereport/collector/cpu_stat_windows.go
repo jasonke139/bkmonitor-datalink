@@ -30,7 +30,7 @@ var cpuInfo = make([]cpu.InfoStat, 0)
 var cpuInfoWithContext = cpu.InfoWithContext
 
 // cpuInfoUpdaterRunning 标记后台 CPU 信息刷新协程是否正在运行。
-var cpuInfoUpdaterRunning atomic.Bool
+var cpuInfoUpdaterRunning int32
 
 // updateLock 用于保护 `cpuInfo` 的并发读写。
 var updateLock sync.RWMutex
@@ -227,7 +227,7 @@ func fetchCPUInfo(timeout time.Duration) ([]cpu.InfoStat, error) {
 }
 
 func ensureCPUInfoUpdater(period time.Duration, timeout time.Duration) {
-	if !cpuInfoUpdaterRunning.CompareAndSwap(false, true) {
+	if !atomic.CompareAndSwapInt32(&cpuInfoUpdaterRunning, 0, 1) {
 		return
 	}
 
@@ -236,7 +236,7 @@ func ensureCPUInfoUpdater(period time.Duration, timeout time.Duration) {
 	}
 
 	go func(period time.Duration, timeout time.Duration) {
-		defer cpuInfoUpdaterRunning.Store(false)
+		defer atomic.StoreInt32(&cpuInfoUpdaterRunning, 0)
 
 		timer := time.NewTicker(period)
 		defer timer.Stop()

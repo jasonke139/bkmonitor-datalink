@@ -19,7 +19,6 @@ import (
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	"golang.org/x/exp/maps"
 
 	"github.com/TencentBlueKing/bkmonitor-datalink/pkg/bkmonitorbeat/define"
 	"github.com/TencentBlueKing/bkmonitor-datalink/pkg/bkmonitorbeat/define/stats"
@@ -108,6 +107,17 @@ func mergeMap(labels ...map[string]string) map[string]string {
 	return dst
 }
 
+func cloneMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	c := make(map[string]string, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
+	return c
+}
+
 func buildMetrics(name string, value float64, labels map[string]string) common.MapStr {
 	m := Metric{
 		Metrics:   map[string]float64{"bkmonitorbeat_" + name: value},
@@ -159,7 +169,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 			ms = append(ms, Metric{
 				Metrics:   map[string]float64{name: counter.GetValue()},
 				Timestamp: ts,
-				Dimension: maps.Clone(lbs),
+				Dimension: cloneMap(lbs),
 			})
 		}
 
@@ -169,7 +179,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 			ms = append(ms, Metric{
 				Metrics:   map[string]float64{name: gauge.GetValue()},
 				Timestamp: ts,
-				Dimension: maps.Clone(lbs),
+				Dimension: cloneMap(lbs),
 			})
 		}
 
@@ -182,7 +192,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 					name + "_count": float64(summary.GetSampleCount()),
 				},
 				Timestamp: ts,
-				Dimension: maps.Clone(lbs),
+				Dimension: cloneMap(lbs),
 			})
 
 			for _, quantile := range summary.GetQuantile() {
@@ -190,7 +200,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 					continue
 				}
 
-				quantileLabels := maps.Clone(lbs)
+				quantileLabels := cloneMap(lbs)
 				quantileLabels["quantile"] = strconv.FormatFloat(quantile.GetQuantile(), 'f', -1, 64)
 				ms = append(ms, Metric{
 					Metrics: map[string]float64{
@@ -210,7 +220,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 						name + "_count": float64(histogram.GetSampleCount()),
 					},
 					Timestamp: ts,
-					Dimension: maps.Clone(lbs),
+					Dimension: cloneMap(lbs),
 				})
 
 				infSeen := false
@@ -219,7 +229,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 						infSeen = true
 					}
 
-					bucketLabels := maps.Clone(lbs)
+					bucketLabels := cloneMap(lbs)
 					bucketLabels["le"] = strconv.FormatFloat(bucket.GetUpperBound(), 'f', -1, 64)
 					ms = append(ms, Metric{
 						Metrics: map[string]float64{
@@ -234,7 +244,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 				// 仅 expfmt.FmtText 格式支持 inf
 				// 其他格式需要自行检查
 				if !infSeen {
-					bucketLabels := maps.Clone(lbs)
+					bucketLabels := cloneMap(lbs)
 					bucketLabels["le"] = strconv.FormatFloat(math.Inf(+1), 'f', -1, 64)
 					ms = append(ms, Metric{
 						Metrics: map[string]float64{
@@ -253,7 +263,7 @@ func decodePromMetricFamily(mf *dto.MetricFamily, extLabels map[string]string) [
 				ms = append(ms, Metric{
 					Metrics:   map[string]float64{name: untyped.GetValue()},
 					Timestamp: ts,
-					Dimension: maps.Clone(lbs),
+					Dimension: cloneMap(lbs),
 				})
 			}
 		}

@@ -22,7 +22,7 @@ import (
 )
 
 type Gather struct {
-	running atomic.Bool
+	running int32
 	config  *configs.ProcSnapshotConfig
 	tasks.BaseTask
 }
@@ -38,13 +38,13 @@ func New(globalConfig define.Config, taskConfig define.TaskConfig) define.Task {
 }
 
 func (g *Gather) Run(ctx context.Context, e chan<- define.Event) {
-	if g.running.Load() {
+	if atomic.LoadInt32(&g.running) != 0 {
 		logger.Info("ProcSnapshot task has running, will skip")
 		return
 	}
 
-	g.running.Store(true)
-	defer g.running.Store(false)
+	atomic.StoreInt32(&g.running, 1)
+	defer atomic.StoreInt32(&g.running, 0)
 
 	now := time.Now()
 	procs, err := AllProcsMetaWithCache(g.config.Period)

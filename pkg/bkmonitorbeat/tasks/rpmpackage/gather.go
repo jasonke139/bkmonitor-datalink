@@ -26,7 +26,7 @@ import (
 )
 
 type Gather struct {
-	running atomic.Bool
+	running int32
 	config  *configs.RpmPackageConfig
 	tasks.BaseTask
 }
@@ -46,13 +46,13 @@ func (g *Gather) Run(ctx context.Context, e chan<- define.Event) {
 		return
 	}
 
-	if g.running.Load() {
+	if atomic.LoadInt32(&g.running) != 0 {
 		logger.Info("RpmPackage task has running, will skip")
 		return
 	}
 
-	g.running.Store(true)
-	defer g.running.Store(false)
+	atomic.StoreInt32(&g.running, 1)
+	defer atomic.StoreInt32(&g.running, 0)
 
 	now := time.Now()
 	var items []PackageInfo

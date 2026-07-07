@@ -36,9 +36,9 @@ type recorder struct {
 	externalLabels  []map[string]string
 	out             chan common.MapStr
 
-	received atomic.Int64
-	sent     atomic.Int64
-	cleaned  atomic.Int64
+	received int64
+	sent     int64
+	cleaned  int64
 }
 
 func newRecorder(ctx context.Context, conf *configs.KubeEventConfig) *recorder {
@@ -79,7 +79,7 @@ func (r *recorder) loopHandle() {
 				// 表示这段时间内没有产生事件 则缓存需要清除
 				if cnt <= 0 {
 					delete(r.set, key)
-					r.cleaned.Add(1)
+					atomic.AddInt64(&r.cleaned, 1)
 					continue
 				}
 				cloned.Count = cnt
@@ -98,7 +98,7 @@ func (r *recorder) Recv(event k8sEvent) {
 	r.mut.Lock()
 	defer r.mut.Unlock()
 
-	r.received.Add(1)
+	atomic.AddInt64(&r.received, 1)
 
 	// 异常时间处理
 	if event.IsZeroTime() {
@@ -168,7 +168,7 @@ func (g *Gather) Run(ctx context.Context, e chan<- define.Event) {
 
 	sentOut := func() {
 		e <- newWrapEvent(g.store.dataID, events)
-		g.store.sent.Add(int64(len(events)))
+		atomic.AddInt64(&g.store.sent, int64(len(events)))
 		events = make([]common.MapStr, 0, batch)
 	}
 
@@ -187,7 +187,7 @@ func (g *Gather) Run(ctx context.Context, e chan<- define.Event) {
 			}
 
 		case <-reportTicker.C:
-			e <- CodeMetrics(g.store.upMetricsDataID, g.TaskConfig, g.store.received.Load(), g.store.sent.Load(), g.store.cleaned.Load())
+			e <- CodeMetrics(g.store.upMetricsDataID, g.TaskConfig, atomic.LoadInt64(&g.store.received), atomic.LoadInt64(&g.store.sent), atomic.LoadInt64(&g.store.cleaned))
 
 		case <-g.ctx.Done():
 			return

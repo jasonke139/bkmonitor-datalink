@@ -97,14 +97,14 @@ func (m *MetricSet) metricRelabel(promEvent *tasks.PromEvent) bool {
 	}
 
 	// 判断指标是否被过滤
-	lset, _ := relabel.Process(promLabels, m.MetricRelabelConfigs...)
+	lset := relabel.Process(promLabels, m.MetricRelabelConfigs...)
 	if len(lset) == 0 {
 		logger.Debugf("data: %v skipped by metric relabel config", promLabels)
 		return false
 	}
 
 	if len(m.remoteRelabelCache) > 0 {
-		lset, _ = relabel.Process(lset, m.remoteRelabelCache...)
+		lset = relabel.Process(lset, m.remoteRelabelCache...)
 	}
 
 	// 基于过滤结果，将数据重新收集

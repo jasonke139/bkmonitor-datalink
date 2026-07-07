@@ -11,12 +11,14 @@ package beat
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
 
 	"github.com/containerd/cgroups"
-	"github.com/containerd/cgroups/v3/cgroup2"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -48,46 +50,70 @@ func setLinuxCgroups(name string, cpu float64, mem int) error {
 	}
 }
 
+// setLinuxCgroupsV2 通过直接操作 cgroup v2 伪文件系统设置资源限制
+// 路径: /sys/fs/cgroup/collector-<name>/
+//   cpu.max    -> "quota period" (例如 "100000 100000")
+//   memory.max -> limit in bytes
+//   cgroup.procs -> PID
 func setLinuxCgroupsV2(name string, cpu float64, mem int) error {
-	var cpuResource *cgroup2.CPU
-	var memResource *cgroup2.Memory
+	cgroupPath := filepath.Join("/sys/fs/cgroup", "collector-"+name)
 
-	// cpu * Core: 小于等于 0 表示 cgroup 无 CPU 限制
-	var cpuPeriod uint64 = 100000
-	cpuQuota := int64(cpu * float64(cpuPeriod))
+	// 创建 cgroup 目录
+	if err := os.MkdirAll(cgroupPath, 0755); err != nil {
+		return fmt.Errorf("create cgroup dir %s: %w", cgroupPath, err)
+	}
+
+	hasLimit := false
+
+	// 设置 CPU 限制（格式: "quota period"）
+	const cpuPeriod = 100000
+	cpuQuota := int64(cpu * cpuPeriod)
 	if cpuQuota > 0 {
-		cpuResource = &cgroup2.CPU{Max: cgroup2.NewCPUMax(&cpuQuota, &cpuPeriod)}
-	}
-	if cpuQuota < 0 {
-		cpuResource = &cgroup2.CPU{Max: "max"}
+		cpuMax := fmt.Sprintf("%d %d", cpuQuota, cpuPeriod)
+		if err := os.WriteFile(
+			filepath.Join(cgroupPath, "cpu.max"),
+			[]byte(cpuMax), 0644,
+		); err != nil {
+			return fmt.Errorf("write cpu.max: %w", err)
+		}
+		hasLimit = true
+	} else if cpuQuota < 0 {
+		// 负数表示无限制
+		if err := os.WriteFile(
+			filepath.Join(cgroupPath, "cpu.max"),
+			[]byte("max"), 0644,
+		); err != nil {
+			return fmt.Errorf("write cpu.max: %w", err)
+		}
+		hasLimit = true
 	}
 
-	// mem * MB: 小于等于 0 表示 cgroup 无内存限制
+	// 设置内存限制（单位: bytes）
 	memLimit := int64(mem) * 1024 * 1024
 	if memLimit > 0 {
-		memResource = &cgroup2.Memory{Max: &memLimit}
+		if err := os.WriteFile(
+			filepath.Join(cgroupPath, "memory.max"),
+			[]byte(strconv.FormatInt(memLimit, 10)), 0644,
+		); err != nil {
+			return fmt.Errorf("write memory.max: %w", err)
+		}
+		hasLimit = true
 	}
 
-	// 无任何限制 直接返回
-	if cpuResource == nil && memResource == nil {
+	if !hasLimit {
 		return nil
 	}
 
-	rs := &cgroup2.Resources{
-		CPU:    cpuResource,
-		Memory: memResource,
+	// 将当前进程加入 cgroup
+	pidStr := strconv.FormatInt(int64(os.Getpid()), 10)
+	if err := os.WriteFile(
+		filepath.Join(cgroupPath, "cgroup.procs"),
+		[]byte(pidStr), 0644,
+	); err != nil {
+		return fmt.Errorf("write cgroup.procs: %w", err)
 	}
 
-	// 分组路径
-	group := "/collector-" + name
-
-	// cgroup2 Load 场景下不会失败
-	// 统一使用 New 来管理
-	mgr, err := cgroup2.NewManager("/sys/fs/cgroup", group, rs)
-	if err != nil {
-		return err
-	}
-	return mgr.AddProc(uint64(os.Getpid()))
+	return nil
 }
 
 func setLinuxCgroupsV1(name string, cpu float64, mem int) error {
